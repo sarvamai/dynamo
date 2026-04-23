@@ -77,7 +77,18 @@ def _generate_dgd_from_pick(
 
     original_total_gpus = tc.total_gpus
     if "total_gpus_needed" in row.index and row["total_gpus_needed"] > 0:
-        tc.total_gpus = int(row["total_gpus_needed"])
+        requested_total_gpus = int(row["total_gpus_needed"])
+        # Enforce DGDR hardware budget as a hard cap in rapid mode.
+        # Some AIC pickers expose total_gpus_needed as a ranking signal rather
+        # than a strict feasibility constraint.
+        if requested_total_gpus > original_total_gpus:
+            logger.warning(
+                "Picked config requests %d GPUs but DGDR budget is %d; "
+                "clamping generated deployment to budget.",
+                requested_total_gpus,
+                original_total_gpus,
+            )
+        tc.total_gpus = min(requested_total_gpus, original_total_gpus)
 
     k8s_overrides = _build_k8s_overrides(dgdr, tc.backend_name)
     cfg = task_config_to_generator_config(

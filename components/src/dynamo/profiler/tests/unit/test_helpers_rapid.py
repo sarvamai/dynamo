@@ -9,6 +9,7 @@ the end-to-end test suite.
 """
 
 import copy
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pandas as pd
@@ -22,7 +23,11 @@ pytestmark = [
 ]
 
 try:
-    from dynamo.profiler.rapid import _run_default_sim, _run_naive_fallback
+    from dynamo.profiler.rapid import (
+        _generate_dgd_from_pick,
+        _run_default_sim,
+        _run_naive_fallback,
+    )
     from dynamo.profiler.utils.dgdr_v1beta1_types import (
         DynamoGraphDeploymentRequestSpec,
         FeaturesSpec,
@@ -417,3 +422,92 @@ class TestRunDefaultSimForceDisagg:
         agg_only = ("agg", {"agg": agg_df}, None, None, {"agg": latencies})
         result = self._call_default_sim(dgdr, agg_only)
         assert result["chosen_exp"] == "agg"
+
+
+class TestGenerateDgdFromPick:
+    @pytest.mark.pre_merge
+    @pytest.mark.gpu_0
+    def test_clamps_total_gpus_needed_to_budget(self):
+        """Generator input must never exceed TaskConfig/DGDR GPU budget."""
+        dgdr = _make_dgdr()
+        best_config_df = pd.DataFrame(
+            [{"backend": "trtllm", "total_gpus_needed": 50}]
+        )
+        task = SimpleNamespace(
+            total_gpus=32,
+            backend_name="trtllm",
+            backend_version="0.0.0",
+        )
+        seen_total_gpus: list[int] = []
+
+        def fake_task_config_to_generator_config(
+            task_config, result_df, generator_overrides=None
+        ):
+            seen_total_gpus.append(task_config.total_gpus)
+            return {"K8sConfig": {}}
+
+        with (
+            patch(
+                "dynamo.profiler.rapid.task_config_to_generator_config",
+                side_effect=fake_task_config_to_generator_config,
+            ),
+            patch(
+                "dynamo.profiler.rapid.generate_backend_artifacts",
+                return_value={
+                    "k8s_deploy.yaml": "kind: DGD\nmetadata:\n  name: test\nspec:\n  services: {}"
+                },
+            ),
+        ):
+            _generate_dgd_from_pick(
+                dgdr,
+                best_config_df,
+                "disagg",
+                {"disagg": task},
+            )
+
+        assert seen_total_gpus == [32]
+        # Ensure temporary mutation is always reverted.
+        assert task.total_gpus == 32
+
+    @pytest.mark.pre_merge
+    @pytest.mark.gpu_0
+    def test_uses_smaller_total_gpus_needed_when_within_budget(self):
+        """When AIC asks for fewer GPUs than budget, pass that smaller value through."""
+        dgdr = _make_dgdr()
+        best_config_df = pd.DataFrame(
+            [{"backend": "trtllm", "total_gpus_needed": 20}]
+        )
+        task = SimpleNamespace(
+            total_gpus=32,
+            backend_name="trtllm",
+            backend_version="0.0.0",
+        )
+        seen_total_gpus: list[int] = []
+
+        def fake_task_config_to_generator_config(
+            task_config, result_df, generator_overrides=None
+        ):
+            seen_total_gpus.append(task_config.total_gpus)
+            return {"K8sConfig": {}}
+
+        with (
+            patch(
+                "dynamo.profiler.rapid.task_config_to_generator_config",
+                side_effect=fake_task_config_to_generator_config,
+            ),
+            patch(
+                "dynamo.profiler.rapid.generate_backend_artifacts",
+                return_value={
+                    "k8s_deploy.yaml": "kind: DGD\nmetadata:\n  name: test\nspec:\n  services: {}"
+                },
+            ),
+        ):
+            _generate_dgd_from_pick(
+                dgdr,
+                best_config_df,
+                "disagg",
+                {"disagg": task},
+            )
+
+        assert seen_total_gpus == [20]
+        assert task.total_gpus == 32
