@@ -430,9 +430,7 @@ class TestGenerateDgdFromPick:
     def test_clamps_total_gpus_needed_to_budget(self):
         """Generator input must never exceed TaskConfig/DGDR GPU budget."""
         dgdr = _make_dgdr()
-        best_config_df = pd.DataFrame(
-            [{"backend": "trtllm", "total_gpus_needed": 50}]
-        )
+        best_config_df = pd.DataFrame([{"backend": "trtllm", "total_gpus_needed": 50}])
         task = SimpleNamespace(
             total_gpus=32,
             backend_name="trtllm",
@@ -474,9 +472,7 @@ class TestGenerateDgdFromPick:
     def test_uses_smaller_total_gpus_needed_when_within_budget(self):
         """When AIC asks for fewer GPUs than budget, pass that smaller value through."""
         dgdr = _make_dgdr()
-        best_config_df = pd.DataFrame(
-            [{"backend": "trtllm", "total_gpus_needed": 20}]
-        )
+        best_config_df = pd.DataFrame([{"backend": "trtllm", "total_gpus_needed": 20}])
         task = SimpleNamespace(
             total_gpus=32,
             backend_name="trtllm",
